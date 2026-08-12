@@ -5,7 +5,6 @@
 <br>
 
 <a href="https://github.com/thexento/pterodactyl-installer">
-  <img src="assets/pteroinstaller-logo.png" alt="Pterodactyl Installer Logo" width="110">
 </a>
 
 # Pterodactyl Installer
