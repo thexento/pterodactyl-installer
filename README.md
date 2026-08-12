@@ -13,7 +13,7 @@
 **A production-grade Linux installer for Pterodactyl Panel, Wings, and related services.**
 
 <p>
-  <a href="https://github.com/thexento/Pterodactyl-Installer/releases">
+  <a href="https://github.com/thexento/pterodactyl-installer/releases">
     <img src="https://img.shields.io/badge/Version-v1.1.0-111111?style=for-the-badge" alt="Version">
   </a>
   <a href="https://www.gnu.org/licenses/gpl-3.0.html">
@@ -28,7 +28,7 @@
 <p>
   <a href="https://pterodactyl-installer.xento.us.kg">Website</a>
   ·
-  <a href="https://github.com/thexento/Pterodactyl-Installer">Repository</a>
+  <a href="https://github.com/thexento/pterodactyl-installer">Repository</a>
   ·
   <a href="https://pterodactyl.io/">Pterodactyl</a>
 </p>
@@ -67,7 +67,7 @@ bash <(curl -fsSL https://pterodactyl-installer.xento.us.kg/install.sh)
 Or use the GitHub-hosted installer:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/thexento/pterodactyl-installer/main/install.sh)
 ```
 
 The interactive installer provides a menu for installation, management, health checks, and removal.
@@ -245,7 +245,7 @@ Pterodactyl Wings
 The project uses a modular shell architecture so that individual components can be maintained without turning the main entrypoint into a monolithic script.
 
 ```text
-Pterodactyl-Installer/
+pterodactyl-installer/
 ├── install.sh
 ├── README.md
 ├── index.html
@@ -664,8 +664,8 @@ Panel files are assigned to the appropriate web-server account rather than being
 Clone the repository:
 
 ```bash
-git clone https://github.com/thexento/Pterodactyl-Installer.git
-cd Pterodactyl-Installer
+git clone https://github.com/thexento/pterodactyl-installer.git
+cd pterodactyl-installer
 ```
 
 Review the project:
