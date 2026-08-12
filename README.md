@@ -38,7 +38,7 @@
 
 ## Overview
 
-**Pterodactyl Installer by XENTO** is a modular Linux shell installer built to automate the deployment, configuration, maintenance, health checking, and safe removal of a Pterodactyl environment.
+**Pterodactyl Installer** is a modular Linux shell installer built to automate the deployment, configuration, maintenance, health checking, and safe removal of a Pterodactyl environment.
 
 It provides a single entrypoint for managing:
 
