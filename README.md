@@ -4,7 +4,7 @@
 
 <br>
 
-<a href="https://github.com/thexento/Pterodactyl-Installer">
+<a href="https://github.com/thexento/pterodactyl-installer">
   <img src="assets/pteroinstaller-logo.png" alt="Pterodactyl Installer Logo" width="110">
 </a>
 
@@ -694,18 +694,6 @@ shellcheck install.sh scripts/*.sh
 
 For destructive operations, use a disposable VPS or virtual machine rather than a production server.
 
----
-
-## Project Links
-
-| Resource | Link |
-|----------|------|
-| GitHub | [thexento/Pterodactyl-Installer](https://github.com/thexento/Pterodactyl-Installer) |
-| Website | [pterodactyl-installer.xento.us.kg](https://pterodactyl-installer.xento.us.kg) |
-| Developer | [XENTO](https://github.com/thexento) |
-| Pterodactyl | [pterodactyl.io](https://pterodactyl.io/) |
-
----
 
 ## License
 
@@ -723,7 +711,7 @@ This program is distributed in the hope that it will be useful, but **WITHOUT AN
 
 **Pterodactyl Installer by XENTO**
 
-[GitHub](https://github.com/thexento/Pterodactyl-Installer)
+[GitHub](https://github.com/thexento/pterodactyl-installer)
 ·
 [Website](https://pterodactyl-installer.xento.us.kg)
 
