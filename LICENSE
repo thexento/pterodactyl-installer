@@ -1,0 +1,84 @@
+---
+
+#### `index.html`
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pterodactyl Installer — by XENTO</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #0284c7;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+    }
+    h1 { font-size: 2.2rem; color: #38bdf8; margin-bottom: 0.5rem; }
+    p.subtitle { color: var(--muted); font-size: 1.1rem; margin-top: 0; }
+    .card {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      border: 1px solid #334155;
+    }
+    code, pre {
+      font-family: "Courier New", Courier, monospace;
+      background: #090d16;
+      padding: 0.8rem;
+      border-radius: 6px;
+      display: block;
+      color: #7dd3fc;
+      overflow-x: auto;
+    }
+    .footer { text-align: center; color: var(--muted); font-size: 0.9rem; margin-top: 2rem; }
+    a { color: #38bdf8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Pterodactyl Installer</h1>
+    <p class="subtitle">Automated, secure installer for Pterodactyl Panel, Wings, and phpMyAdmin by XENTO.</p>
+
+    <div class="card">
+      <h2>Quick Installation Command</h2>
+      <p>Run the following command as root on your server:</p>
+      <pre>bash &lt;(curl -fsSL https://pterodactyl-installer.xento.us.kg/install.sh)</pre>
+    </div>
+
+    <div class="card">
+      <h2>Features & OS Support</h2>
+      <ul>
+        <li>Supported OS: Ubuntu (22.04, 24.04), Debian (11, 12), Rocky Linux (8, 9), AlmaLinux (8, 9)</li>
+        <li>Architectures: x86_64 (amd64), aarch64 (arm64)</li>
+        <li>Automated dependency installation (PHP 8.3, MariaDB, Redis, Docker, Nginx)</li>
+        <li>Certbot integration for Let's Encrypt SSL certificates</li>
+        <li>Safe uninstallation with automatic pre-removal backups</li>
+      </ul>
+    </div>
+
+    <div class="footer">
+      <p>&copy; 2024–2026 XENTO. Licensed under GPL-3.0.</p>
+      <p>Project Repository: <a href="https://github.com/thexento/Pterodactyl-Installer">GitHub</a></p>
+      <p><small>Not affiliated with the official Pterodactyl Project.</small></p>
+    </div>
+  </div>
+</body>
+</html>
