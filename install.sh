@@ -104,8 +104,8 @@ interactive_menu() {
 }
 
 main() {
+  elevate_root  # Auto-elevates BEFORE trying to create log files
   init_log
-  check_root
   detect_os
   detect_arch
 

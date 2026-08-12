@@ -23,6 +23,24 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
+# --- Auto-Elevation Helper (MUST RUN BEFORE LOGGING) ---
+elevate_root() {
+  if [[ $EUID -ne 0 ]]; then
+    echo -e "${CYAN}[INFO]${NC}  Root privileges required. Elevating via sudo..."
+    if command -v sudo >/dev/null 2>&1; then
+      # Handle execution via pipe / curl process-substitution
+      if [[ ! -f "$0" ]] || [[ "$0" =~ ^/dev/fd/ ]]; then
+        exec sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/install.sh)" -- "$@"
+      else
+        exec sudo bash "$0" "$@"
+      fi
+    else
+      echo -e "${RED}[FATAL]${NC} Root privileges are required and 'sudo' was not found. Please run as root." >&2
+      exit 1
+    fi
+  fi
+}
+
 # --- Logging & UI Functions ---
 init_log() {
   mkdir -p "$(dirname "$LOG_FILE")"
@@ -70,13 +88,6 @@ fatal() {
   echo -e "${RED}${BOLD}[FATAL]${NC} $*" >&2
   log_write "FATAL" "$*"
   exit 1
-}
-
-# --- System Checks ---
-check_root() {
-  if [[ $EUID -ne 0 ]]; then
-    fatal "This script must be executed as root. (e.g. sudo bash $0)"
-  fi
 }
 
 detect_os() {
