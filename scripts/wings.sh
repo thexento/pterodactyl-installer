@@ -76,11 +76,16 @@ install_docker() {
     ubuntu|debian)
       pkg_install ca-certificates curl gnupg
       mkdir -p /etc/apt/keyrings
-      curl -fsSL "https://download.docker.com/linux/${OS_ID}/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg >> "$LOG_FILE" 2>&1
+      curl -fsSL "https://download.docker.com/linux/${OS_ID}/gpg" | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg >> "$LOG_FILE" 2>&1
       chmod a+r /etc/apt/keyrings/docker.gpg
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${OS_ID} ${VERSION_CODENAME:-$OS_VERSION_ID} stable" > /etc/apt/sources.list.d/docker.list
-      pkg_update
-      pkg_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      local codename="${VERSION_CODENAME:-noble}"
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${OS_ID} ${codename} stable" > /etc/apt/sources.list.d/docker.list
+      if ! pkg_update || ! pkg_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        warn "Official docker-ce repo failed. Falling back to native distribution docker packages..."
+        rm -f /etc/apt/sources.list.d/docker.list
+        pkg_update
+        pkg_install docker.io containerd
+      fi
       ;;
     rocky|almalinux)
       pkg_install dnf-plugins-core

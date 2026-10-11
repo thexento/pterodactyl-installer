@@ -104,12 +104,12 @@ detect_os() {
 
   case "$OS_ID" in
     ubuntu)
-      case "$OS_VERSION_ID" in
-        22.04|24.04) ;;
-        *) fatal "Unsupported Ubuntu version: ${OS_VERSION_ID}. Supported: 22.04, 24.04." ;;
-      esac
-      PKG_MANAGER="apt"
-      ;;
+        case "$OS_VERSION_ID" in
+          22.04|24.04|26.04) ;;
+          *) fatal "Unsupported Ubuntu version: ${OS_VERSION_ID}. Supported: 22.04, 24.04, 26.04." ;;
+        esac
+        PKG_MANAGER="apt"
+        ;;
     debian)
       case "$OS_MAJOR" in
         11|12) ;;

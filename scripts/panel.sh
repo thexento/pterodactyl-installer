@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Pterodactyl Installer by XENTO — Panel Installer Module
+# Pterodactyl Installer — Panel Installer Module (v1 & v2 Support)
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -15,8 +15,21 @@ collect_panel_inputs() {
   echo -e "  ${WHITE}${BOLD}Panel Configuration${NC}"
   echo -e "  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
+  echo -e "  ${WHITE}Select Pterodactyl Version:${NC}"
+  echo -e "    ${WHITE}[1]${NC} Pterodactyl v1 (Stable — Recommended for Production)"
+  echo -e "    ${WHITE}[2]${NC} Pterodactyl v2 (Alpha / Pre-Release — Modernized Stack)"
   while true; do
-    echo -n -e "  ${WHITE}Panel Domain or IP (e.g. panel.example.com):${NC} "
+    echo -n -e "  ${WHITE}Choice [1-2]:${NC} "
+    read -r VER_CHOICE
+    case "$VER_CHOICE" in
+      1) PANEL_VERSION="v1"; break ;;
+      2) PANEL_VERSION="v2"; break ;;
+      *) error "Invalid option. Enter 1 or 2." ;;
+    esac
+  done
+
+  while true; do
+    echo -n -e "\n  ${WHITE}Panel Domain or IP (e.g. panel.example.com):${NC} "
     read -r PANEL_FQDN
     if validate_domain_ip "$PANEL_FQDN"; then break; else error "Invalid FQDN or IP format."; fi
   done
@@ -57,7 +70,7 @@ collect_panel_inputs() {
   TIMEZONE="${TIMEZONE:-UTC}"
 
   echo -e "\n  ${WHITE}SSL Options:${NC}"
-  echo -e "    ${WHITE}[1]${NC} Let's Encrypt (Automated SSL - Requires domain pointing to server)"
+  echo -e "    ${WHITE}[1]${NC} Let's Encrypt (Automated SSL)"
   echo -e "    ${WHITE}[2]${NC} Behind Reverse Proxy / Cloudflare Tunnel (Assume SSL)"
   echo -e "    ${WHITE}[3]${NC} HTTP Only (No SSL)"
   while true; do
@@ -82,6 +95,7 @@ collect_panel_inputs() {
   echo -e "\n  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "  ${WHITE}${BOLD}Summary - Panel Setup${NC}"
   echo -e "  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "  Version    : ${WHITE}${PANEL_VERSION} $([[ "$PANEL_VERSION" == "v2" ]] && echo "(Alpha/Pre-Release)" || echo "(Stable)")${NC}"
   echo -e "  Domain/IP  : ${WHITE}${PANEL_FQDN}${NC}"
   echo -e "  Admin User : ${WHITE}${ADMIN_USER} (${ADMIN_EMAIL})${NC}"
   echo -e "  Timezone   : ${WHITE}${TIMEZONE}${NC}"
@@ -100,9 +114,9 @@ setup_php_repositories() {
   step "Configuring PHP repositories..."
   case "$OS_ID" in
     ubuntu)
-      if [[ "$OS_VERSION_ID" == "22.04" ]]; then
+      if ! apt-cache show php8.3 >/dev/null 2>&1; then
         pkg_install software-properties-common ca-certificates lsb-release apt-transport-https gnupg
-        add-apt-repository -y ppa:ondrej/php >> "$LOG_FILE" 2>&1
+        add-apt-repository -y ppa:ondrej/php >> "$LOG_FILE" 2>&1 || true
       fi
       ;;
     debian)
@@ -127,14 +141,24 @@ install_panel_dependencies() {
     apt)
       pkg_install php8.3 php8.3-cli php8.3-common php8.3-gd php8.3-mysql php8.3-mbstring \
                   php8.3-bcmath php8.3-xml php8.3-fpm php8.3-curl php8.3-zip php8.3-tokenizer \
-                  mariadb-server mariadb-client nginx redis-server curl tar unzip git cron
+                  php8.3-intl mariadb-server mariadb-client nginx redis-server curl tar unzip git cron
       ;;
     dnf)
       pkg_install php php-cli php-common php-gd php-mysqlnd php-mbstring php-bcmath \
-                  php-xml php-fpm php-curl php-zip php-tokenizer \
+                  php-xml php-fpm php-curl php-zip php-tokenizer php-intl \
                   mariadb mariadb-server nginx redis curl tar unzip git cronie
       ;;
   esac
+
+  # v2 requires Node.js 22 to build frontend if needed
+  if [[ "$PANEL_VERSION" == "v2" ]]; then
+    if ! command -v node >/dev/null 2>&1; then
+      step "Installing Node.js 22 for v2 frontend build..."
+      curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >> "$LOG_FILE" 2>&1 || true
+      pkg_install nodejs
+    fi
+  fi
+
   success "Core dependencies installed."
 }
 
@@ -154,7 +178,6 @@ setup_database() {
   step "Setting up MariaDB database and user..."
   service_enable_start mariadb
 
-  # Use mysql command safely with escaped SQL
   mysql -u root <<SQL >> "$LOG_FILE" 2>&1
 CREATE DATABASE IF NOT EXISTS \`${MYSQL_DB}\`;
 CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'127.0.0.1' IDENTIFIED BY '${MYSQL_PASS}';
@@ -165,17 +188,24 @@ SQL
 }
 
 download_panel() {
-  step "Downloading Pterodactyl Panel..."
+  step "Downloading Pterodactyl Panel (${PANEL_VERSION})..."
   mkdir -p /var/www/pterodactyl
   cd /var/www/pterodactyl
 
-  local latest_tag
-  latest_tag=$(curl -fsSL https://api.github.com/repos/pterodactyl/panel/releases/latest | grep -oP '"tag_name": "\K[^"]+' || echo "v1.11.11")
-
-  info "Downloading release ${latest_tag}..."
-  curl -fsSL "https://github.com/pterodactyl/panel/releases/download/${latest_tag}/panel.tar.gz" -o panel.tar.gz
-  tar -xzf panel.tar.gz
-  rm -f panel.tar.gz
+  if [[ "$PANEL_VERSION" == "v1" ]]; then
+    local latest_tag
+    latest_tag=$(curl -fsSL https://api.github.com/repos/pterodactyl/panel/releases/latest | grep -oP '"tag_name": "\K[^"]+' || echo "v1.11.11")
+    info "Downloading latest stable v1 release (${latest_tag})..."
+    curl -fsSL "https://github.com/pterodactyl/panel/releases/download/${latest_tag}/panel.tar.gz" -o panel.tar.gz
+    tar -xzf panel.tar.gz
+    rm -f panel.tar.gz
+  else
+    info "Downloading Pterodactyl v2 (2.0-develop branch)..."
+    curl -fsSL "https://github.com/pterodactyl/panel/archive/refs/heads/2.0-develop.zip" -o panel.zip
+    unzip -q panel.zip
+    cp -a panel-2.0-develop/. .
+    rm -rf panel-2.0-develop panel.zip
+  fi
 
   chmod -R 755 storage bootstrap/cache
   cp .env.example .env
@@ -191,6 +221,13 @@ configure_panel_app() {
   local app_url="${scheme}://${PANEL_FQDN}"
 
   COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction >> "$LOG_FILE" 2>&1
+
+  # For v2, build the frontend if public build assets are not present
+  if [[ "$PANEL_VERSION" == "v2" && ! -d "public/build" ]]; then
+    step "Building v2 Frontend Assets (npm run build)..."
+    npm ci >> "$LOG_FILE" 2>&1
+    npm run build >> "$LOG_FILE" 2>&1 || npm run build:production >> "$LOG_FILE" 2>&1
+  fi
 
   php artisan key:generate --force >> "$LOG_FILE" 2>&1
 
@@ -236,7 +273,6 @@ configure_panel_app() {
 setup_services_and_cron() {
   step "Setting up Cron and pteroq Worker Service..."
 
-  # Cron setup safely preventing duplicates
   (crontab -l 2>/dev/null | grep -v "pterodactyl/artisan schedule:run" || true; echo "* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 2>&1") | crontab -
 
   local web_user="www-data"
@@ -341,7 +377,6 @@ setup_ssl() {
 
 main() {
   init_log
-  check_root
   detect_os
   detect_arch
 
@@ -362,7 +397,7 @@ main() {
   [[ "$PANEL_SSL" != "none" ]] && scheme="https"
 
   echo -e "\n  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "  ${GREEN}${BOLD}[SUCCESS] Pterodactyl Panel Installation Complete!${NC}"
+  echo -e "  ${GREEN}${BOLD}[SUCCESS] Pterodactyl Panel (${PANEL_VERSION}) Installed!${NC}"
   echo -e "  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "  URL          : ${WHITE}${scheme}://${PANEL_FQDN}${NC}"
   echo -e "  Username     : ${WHITE}${ADMIN_USER}${NC}"
