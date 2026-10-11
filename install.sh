@@ -1,47 +1,62 @@
 #!/bin/bash
 
 # ==============================================================================
-# Pterodactyl Installer by XENTO — Main Entrypoint
+# Pterodactyl Installer — Main Entrypoint
 # Repository: https://github.com/thexento/Pterodactyl-Installer
-# Website:    https://pterodactyl-installer.xento.us.kg
 # License:    GNU General Public License v3.0
 # ==============================================================================
 
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
+# --- 1. Root Auto-Elevation ---
+if [[ $EUID -ne 0 ]]; then
+  echo -e "\033[0;36m[INFO]\033[0m  Root privileges required. Elevating via sudo..."
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo -e "\033[0;31m[FATAL]\033[0m Root privileges required and 'sudo' was not found. Run as root." >&2
+    exit 1
+  fi
 
-# If executing remotely via pipe, download helper scripts automatically
-if [[ ! -d "$SCRIPTS_DIR" ]]; then
-  mkdir -p /tmp/pterodactyl-installer/scripts
-  BASE_RAW_URL="https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/scripts"
-  curl -fsSL "${BASE_RAW_URL}/common.sh" -o /tmp/pterodactyl-installer/scripts/common.sh
-  curl -fsSL "${BASE_RAW_URL}/panel.sh" -o /tmp/pterodactyl-installer/scripts/panel.sh
-  curl -fsSL "${BASE_RAW_URL}/wings.sh" -o /tmp/pterodactyl-installer/scripts/wings.sh
-  curl -fsSL "${BASE_RAW_URL}/phpmyadmin.sh" -o /tmp/pterodactyl-installer/scripts/phpmyadmin.sh
-  curl -fsSL "${BASE_RAW_URL}/uninstall.sh" -o /tmp/pterodactyl-installer/scripts/uninstall.sh
+  SELF="${BASH_SOURCE[0]:-$0}"
+  if [[ -n "$SELF" && -f "$SELF" && ! "$SELF" =~ ^/dev/fd/ ]]; then
+    exec sudo bash "$SELF" "$@"
+  else
+    mkdir -p /tmp/pterodactyl-installer
+    curl -fsSL "https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/install.sh" -o /tmp/pterodactyl-installer/install.sh
+    chmod +x /tmp/pterodactyl-installer/install.sh
+    exec sudo bash /tmp/pterodactyl-installer/install.sh "$@"
+  fi
+fi
+
+# --- 2. Directory & Dependency Resolution ---
+CURRENT_SCRIPT="${BASH_SOURCE[0]:-$0}"
+if [[ -n "$CURRENT_SCRIPT" && -f "$CURRENT_SCRIPT" && ! "$CURRENT_SCRIPT" =~ ^/dev/fd/ ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$CURRENT_SCRIPT")" && pwd)"
+  SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
+else
+  SCRIPT_DIR="/tmp/pterodactyl-installer"
   SCRIPTS_DIR="/tmp/pterodactyl-installer/scripts"
+fi
+
+# Download helper modules if executing remotely
+if [[ ! -d "$SCRIPTS_DIR" || ! -f "${SCRIPTS_DIR}/common.sh" ]]; then
+  mkdir -p "$SCRIPTS_DIR"
+  BASE_RAW_URL="https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/scripts"
+  curl -fsSL "${BASE_RAW_URL}/common.sh" -o "${SCRIPTS_DIR}/common.sh"
+  curl -fsSL "${BASE_RAW_URL}/panel.sh" -o "${SCRIPTS_DIR}/panel.sh"
+  curl -fsSL "${BASE_RAW_URL}/wings.sh" -o "${SCRIPTS_DIR}/wings.sh"
+  curl -fsSL "${BASE_RAW_URL}/phpmyadmin.sh" -o "${SCRIPTS_DIR}/phpmyadmin.sh"
+  curl -fsSL "${BASE_RAW_URL}/uninstall.sh" -o "${SCRIPTS_DIR}/uninstall.sh"
   chmod +x "${SCRIPTS_DIR}"/*.sh
 fi
 
-# shellcheck source=scripts/common.sh
+# shellcheck source=/dev/null
 source "${SCRIPTS_DIR}/common.sh"
 
 print_header() {
   clear
-  echo -e "${CYAN}${BOLD}"
-  echo -e "  ██╗  ██╗███████╗███╗   ██╗████████╗ ██████╗ "
-  echo -e "  ╚██╗██╔╝██╔════╝████╗  ██║╚══██╔══╝██╔═══██╗"
-  echo -e "   ╚███╔╝ █████╗  ██╔██╗ ██║   ██║   ██║   ██║"
-  echo -e "   ██╔██╗ ██╔══╝  ██║╚██╗██║   ██║   ██║   ██║"
-  echo -e "  ██╔╝ ██╗███████╗██║ ╚████║   ██║   ╚██████╔╝"
-  echo -e "  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝ "
-  echo -e "${NC}"
-  echo -e "  ${WHITE}${BOLD}Pterodactyl Installer — by XENTO${NC}"
+  echo -e "\n  ${BOLD}Pterodactyl Installer${NC} ${DIM}(v1.1.0)${NC}"
   echo -e "  ${DIM}https://github.com/thexento/Pterodactyl-Installer${NC}"
-  echo -e "  ${DIM}https://pterodactyl-installer.xento.us.kg${NC}"
-  echo -e "  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+  echo -e "  ──────────────────────────────────────────────────\n"
 }
 
 check_system_status() {
@@ -73,17 +88,17 @@ check_system_status() {
 interactive_menu() {
   while true; do
     print_header
-    echo -e "  ${WHITE}${BOLD}Select an action:${NC}\n"
-    echo -e "  ${WHITE}[1]${NC} Install Pterodactyl Panel"
-    echo -e "  ${WHITE}[2]${NC} Install Pterodactyl Wings"
-    echo -e "  ${WHITE}[3]${NC} Install Panel + Wings (Same Machine)"
-    echo -e "  ${WHITE}[4]${NC} Install phpMyAdmin"
-    echo -e "  ${WHITE}[5]${NC} Check System Status"
-    echo -e "  ${WHITE}[6]${NC} Uninstall Components"
-    echo -e "  ${WHITE}[7]${NC} Exit"
-    echo -e "\n  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+    echo -e "  ${WHITE}Select an action:${NC}\n"
+    echo -e "  [1] Install Pterodactyl Panel"
+    echo -e "  [2] Install Pterodactyl Wings"
+    echo -e "  [3] Install Panel + Wings (Same Machine)"
+    echo -e "  [4] Install phpMyAdmin"
+    echo -e "  [5] Check System Status"
+    echo -e "  [6] Uninstall Components"
+    echo -e "  [7] Exit"
+    echo -e "\n  ──────────────────────────────────────────────────\n"
 
-    echo -n -e "  ${WHITE}Choice [1-7]:${NC} "
+    echo -n -e "  Choice [1-7]: "
     read -r CHOICE
 
     case "$CHOICE" in
@@ -104,7 +119,6 @@ interactive_menu() {
 }
 
 main() {
-  elevate_root  # Auto-elevates BEFORE trying to create log files
   init_log
   detect_os
   detect_arch
