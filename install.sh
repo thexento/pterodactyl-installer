@@ -37,7 +37,7 @@ else
   SCRIPTS_DIR="/tmp/pterodactyl-installer/scripts"
 fi
 
-# Always download fresh helper modules with cache-busting when executing remotely
+# Always pull fresh scripts when executing remotely
 if [[ "$SCRIPTS_DIR" == "/tmp/pterodactyl-installer/scripts" || ! -f "${SCRIPTS_DIR}/common.sh" ]]; then
   mkdir -p "$SCRIPTS_DIR"
   BASE_RAW_URL="https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/scripts"
@@ -107,6 +107,7 @@ interactive_menu() {
       2) bash "${SCRIPTS_DIR}/wings.sh"; break ;;
       3)
         bash "${SCRIPTS_DIR}/panel.sh"
+        echo -e "\n${GREEN}[OK]${NC} Panel installation complete. Proceeding to Wings...\n"
         bash "${SCRIPTS_DIR}/wings.sh"
         break
         ;;

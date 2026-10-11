@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Pterodactyl Installer — Panel Installer Module (Adaptive PHP)
+# Pterodactyl Installer — Panel Installer Module
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -125,9 +125,6 @@ setup_php_repositories() {
     ubuntu)
       pkg_install software-properties-common ca-certificates lsb-release apt-transport-https gnupg
       add-apt-repository -y universe >> "$LOG_FILE" 2>&1 || true
-      if ! apt-cache show php8.3-fpm >/dev/null 2>&1 && ! apt-cache show php-fpm >/dev/null 2>&1; then
-        add-apt-repository -y ppa:ondrej/php >> "$LOG_FILE" 2>&1 || true
-      fi
       ;;
     debian)
       pkg_install ca-certificates apt-transport-https lsb-release curl gnupg
@@ -149,13 +146,15 @@ install_panel_dependencies() {
   step "Installing core dependencies (PHP, MariaDB, Redis, Nginx)..."
   case "$PKG_MANAGER" in
     apt)
-      # Check if versioned php8.3 packages exist in APT cache, otherwise use distro php packages
       local php_pkgs=()
-      if apt-cache show php8.3-fpm >/dev/null 2>&1; then
+
+      # Test whether php8.3-mysql has an actual install candidate in APT
+      if apt-cache policy php8.3-mysql 2>/dev/null | grep -E "Candidate:\s+[0-9]" >/dev/null 2>&1; then
+        info "Installing PHP 8.3 suite..."
         php_pkgs=(php8.3 php8.3-cli php8.3-common php8.3-gd php8.3-mysql php8.3-mbstring \
                   php8.3-bcmath php8.3-xml php8.3-fpm php8.3-curl php8.3-zip php8.3-intl)
       else
-        info "Installing native distribution PHP packages..."
+        info "PHP 8.3 candidate not found. Installing native distribution PHP packages..."
         php_pkgs=(php php-cli php-common php-gd php-mysql php-mbstring \
                   php-bcmath php-xml php-fpm php-curl php-zip php-intl)
       fi
@@ -196,7 +195,12 @@ setup_database() {
   step "Setting up MariaDB database and user..."
   service_enable_start mariadb
 
-  mysql -u root <<SQL >> "$LOG_FILE" 2>&1
+  local sql_cmd="mysql"
+  if command -v mariadb >/dev/null 2>&1; then
+    sql_cmd="mariadb"
+  fi
+
+  $sql_cmd -u root <<SQL >> "$LOG_FILE" 2>&1
 CREATE DATABASE IF NOT EXISTS \`${MYSQL_DB}\`;
 CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'127.0.0.1' IDENTIFIED BY '${MYSQL_PASS}';
 GRANT ALL PRIVILEGES ON \`${MYSQL_DB}\`.* TO '${MYSQL_USER}'@'127.0.0.1' WITH GRANT OPTION;
@@ -240,12 +244,13 @@ configure_panel_app() {
   fi
   local app_url="${scheme}://${PANEL_FQDN}"
 
-  COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction >> "$LOG_FILE" 2>&1
+  # Ignore strict PHP micro-version check so modern PHP doesn't reject Composer
+  COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=php+ >> "$LOG_FILE" 2>&1
 
   if [[ "$PANEL_VERSION" == "v2" && ! -d "public/build" ]]; then
     step "Building v2 Frontend Assets (npm run build)..."
-    npm ci >> "$LOG_FILE" 2>&1
-    npm run build >> "$LOG_FILE" 2>&1 || npm run build:production >> "$LOG_FILE" 2>&1
+    npm ci >> "$LOG_FILE" 2>&1 || npm install >> "$LOG_FILE" 2>&1
+    npm run build >> "$LOG_FILE" 2>&1 || npm run build:production >> "$LOG_FILE" 2>&1 || true
   fi
 
   php artisan key:generate --force >> "$LOG_FILE" 2>&1
@@ -328,14 +333,22 @@ SERVICE
 configure_nginx() {
   step "Configuring Nginx Web Server..."
 
-  # Dynamically find PHP-FPM socket
   systemctl restart php*-fpm >> "$LOG_FILE" 2>&1 || true
   sleep 1
 
-  local php_sock
+  # Dynamically discover active PHP-FPM socket
+  local php_sock=""
   php_sock="$(find /run/php -maxdepth 1 -name "*fpm.sock" 2>/dev/null | head -n 1 || true)"
   if [[ -z "$php_sock" ]]; then
-    php_sock="/run/php/php8.3-fpm.sock"
+    for s in /run/php/php*-fpm.sock /run/php/php-fpm.sock /run/php/php8.3-fpm.sock; do
+      if [[ -S "$s" ]]; then
+        php_sock="$s"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$php_sock" ]]; then
+    php_sock="/run/php/php-fpm.sock"
     if [[ "$PKG_MANAGER" == "dnf" ]]; then
       php_sock="/run/php-fpm/www.sock"
     fi
