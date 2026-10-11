@@ -159,7 +159,7 @@ install_panel_dependencies() {
     fi
   fi
 
-  success "Core dependencies installed."
+  success "Core dependencies  installed."
 }
 
 install_composer() {
