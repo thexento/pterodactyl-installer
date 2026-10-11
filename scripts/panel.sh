@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Pterodactyl Installer — Panel Installer Module
+# Pterodactyl Installer — Panel Installer Module (with Live Tasks)
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -119,8 +119,7 @@ collect_panel_inputs() {
   fi
 }
 
-setup_php_repositories() {
-  step "Configuring PHP repositories..."
+do_setup_php_repositories() {
   case "$OS_ID" in
     ubuntu)
       pkg_install software-properties-common ca-certificates lsb-release apt-transport-https gnupg
@@ -139,26 +138,19 @@ setup_php_repositories() {
       ;;
   esac
   pkg_update
-  success "PHP repositories configured."
 }
 
-install_panel_dependencies() {
-  step "Installing core dependencies (PHP, MariaDB, Redis, Nginx)..."
+do_install_dependencies() {
   case "$PKG_MANAGER" in
     apt)
       local php_pkgs=()
-
-      # Test whether php8.3-mysql has an actual install candidate in APT
       if apt-cache policy php8.3-mysql 2>/dev/null | grep -E "Candidate:\s+[0-9]" >/dev/null 2>&1; then
-        info "Installing PHP 8.3 suite..."
         php_pkgs=(php8.3 php8.3-cli php8.3-common php8.3-gd php8.3-mysql php8.3-mbstring \
                   php8.3-bcmath php8.3-xml php8.3-fpm php8.3-curl php8.3-zip php8.3-intl)
       else
-        info "PHP 8.3 candidate not found. Installing native distribution PHP packages..."
         php_pkgs=(php php-cli php-common php-gd php-mysql php-mbstring \
                   php-bcmath php-xml php-fpm php-curl php-zip php-intl)
       fi
-
       pkg_install "${php_pkgs[@]}" mariadb-server nginx redis-server curl tar unzip git cron
       ;;
     dnf)
@@ -170,35 +162,23 @@ install_panel_dependencies() {
 
   if [[ "$PANEL_VERSION" == "v2" ]]; then
     if ! command -v node >/dev/null 2>&1; then
-      step "Installing Node.js for v2 frontend build..."
       curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >> "$LOG_FILE" 2>&1 || true
       pkg_install nodejs
     fi
   fi
-
-  success "Core dependencies installed."
 }
 
-install_composer() {
-  step "Installing Composer v2..."
+do_install_composer() {
   curl -sS https://getcomposer.org/installer -o /tmp/composer-setup.php
   php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer >> "$LOG_FILE" 2>&1
   rm -f /tmp/composer-setup.php
-
-  if ! composer --version >> "$LOG_FILE" 2>&1; then
-    fatal "Composer installation failed."
-  fi
-  success "Composer installed successfully."
+  composer --version >> "$LOG_FILE" 2>&1
 }
 
-setup_database() {
-  step "Setting up MariaDB database and user..."
+do_setup_database() {
   service_enable_start mariadb
-
   local sql_cmd="mysql"
-  if command -v mariadb >/dev/null 2>&1; then
-    sql_cmd="mariadb"
-  fi
+  command -v mariadb >/dev/null 2>&1 && sql_cmd="mariadb"
 
   $sql_cmd -u root <<SQL >> "$LOG_FILE" 2>&1
 CREATE DATABASE IF NOT EXISTS \`${MYSQL_DB}\`;
@@ -206,23 +186,19 @@ CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'127.0.0.1' IDENTIFIED BY '${MYSQL_PAS
 GRANT ALL PRIVILEGES ON \`${MYSQL_DB}\`.* TO '${MYSQL_USER}'@'127.0.0.1' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
-  success "Database '${MYSQL_DB}' configured."
 }
 
-download_panel() {
-  step "Downloading Pterodactyl Panel (${PANEL_VERSION})..."
+do_download_panel() {
   mkdir -p /var/www/pterodactyl
   cd /var/www/pterodactyl
 
   if [[ "$PANEL_VERSION" == "v1" ]]; then
     local latest_tag
     latest_tag=$(curl -fsSL https://api.github.com/repos/pterodactyl/panel/releases/latest | grep -oP '"tag_name": "\K[^"]+' || echo "v1.11.11")
-    info "Downloading latest stable v1 release (${latest_tag})..."
     curl -fsSL "https://github.com/pterodactyl/panel/releases/download/${latest_tag}/panel.tar.gz" -o panel.tar.gz
     tar -xzf panel.tar.gz
     rm -f panel.tar.gz
   else
-    info "Downloading Pterodactyl v2 (2.0-develop branch)..."
     curl -fsSL "https://github.com/pterodactyl/panel/archive/refs/heads/2.0-develop.zip" -o panel.zip
     unzip -q panel.zip
     cp -a panel-2.0-develop/. .
@@ -231,24 +207,18 @@ download_panel() {
 
   chmod -R 755 storage bootstrap/cache
   cp .env.example .env
-  success "Panel code downloaded."
 }
 
-configure_panel_app() {
-  step "Configuring Laravel Environment..."
+do_configure_panel_app() {
   cd /var/www/pterodactyl
 
   local scheme="http"
-  if [[ "$PANEL_SSL" != "none" ]]; then
-    scheme="https"
-  fi
+  [[ "$PANEL_SSL" != "none" ]] && scheme="https"
   local app_url="${scheme}://${PANEL_FQDN}"
 
-  # Ignore strict PHP micro-version check so modern PHP doesn't reject Composer
   COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=php+ >> "$LOG_FILE" 2>&1
 
   if [[ "$PANEL_VERSION" == "v2" && ! -d "public/build" ]]; then
-    step "Building v2 Frontend Assets (npm run build)..."
     npm ci >> "$LOG_FILE" 2>&1 || npm install >> "$LOG_FILE" 2>&1
     npm run build >> "$LOG_FILE" 2>&1 || npm run build:production >> "$LOG_FILE" 2>&1 || true
   fi
@@ -288,23 +258,15 @@ configure_panel_app() {
     --no-interaction >> "$LOG_FILE" 2>&1
 
   local web_user="www-data"
-  if [[ "$PKG_MANAGER" == "dnf" ]]; then
-    web_user="nginx"
-  fi
+  [[ "$PKG_MANAGER" == "dnf" ]] && web_user="nginx"
   chown -R "${web_user}:${web_user}" /var/www/pterodactyl
-
-  success "Panel application configured."
 }
 
-setup_services_and_cron() {
-  step "Setting up Cron and pteroq Worker Service..."
-
+do_setup_services() {
   (crontab -l 2>/dev/null | grep -v "pterodactyl/artisan schedule:run" || true; echo "* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 2>&1") | crontab -
 
   local web_user="www-data"
-  if [[ "$PKG_MANAGER" == "dnf" ]]; then
-    web_user="nginx"
-  fi
+  [[ "$PKG_MANAGER" == "dnf" ]] && web_user="nginx"
 
   cat > /etc/systemd/system/pteroq.service <<SERVICE
 [Unit]
@@ -327,38 +289,23 @@ SERVICE
 
   service_enable_start redis-server || service_enable_start redis
   service_enable_start pteroq
-  success "Services and cron configured."
 }
 
-configure_nginx() {
-  step "Configuring Nginx Web Server..."
-
+do_configure_nginx() {
   systemctl restart php*-fpm >> "$LOG_FILE" 2>&1 || true
   sleep 1
 
-  # Dynamically discover active PHP-FPM socket
   local php_sock=""
   php_sock="$(find /run/php -maxdepth 1 -name "*fpm.sock" 2>/dev/null | head -n 1 || true)"
   if [[ -z "$php_sock" ]]; then
     for s in /run/php/php*-fpm.sock /run/php/php-fpm.sock /run/php/php8.3-fpm.sock; do
-      if [[ -S "$s" ]]; then
-        php_sock="$s"
-        break
-      fi
+      [[ -S "$s" ]] && php_sock="$s" && break
     done
   fi
-  if [[ -z "$php_sock" ]]; then
-    php_sock="/run/php/php-fpm.sock"
-    if [[ "$PKG_MANAGER" == "dnf" ]]; then
-      php_sock="/run/php-fpm/www.sock"
-    fi
-  fi
-  info "Using PHP-FPM socket: ${php_sock}"
+  [[ -z "$php_sock" ]] && php_sock="/run/php/php-fpm.sock"
 
   local conf_path="/etc/nginx/sites-available/pterodactyl.conf"
-  if [[ "$PKG_MANAGER" == "dnf" ]]; then
-    conf_path="/etc/nginx/conf.d/pterodactyl.conf"
-  fi
+  [[ "$PKG_MANAGER" == "dnf" ]] && conf_path="/etc/nginx/conf.d/pterodactyl.conf"
 
   cat > "$conf_path" <<NGINX
 server {
@@ -404,23 +351,14 @@ NGINX
     rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
   fi
 
-  if ! nginx -t >> "$LOG_FILE" 2>&1; then
-    fatal "Nginx configuration test failed. Check log file."
-  fi
-
+  nginx -t >> "$LOG_FILE" 2>&1
   service_enable_start nginx
-  success "Nginx configured."
 }
 
-setup_ssl() {
+do_setup_ssl() {
   if [[ "$PANEL_SSL" == "letsencrypt" ]]; then
-    step "Setting up Let's Encrypt SSL certificate..."
     pkg_install certbot python3-certbot-nginx
-    if certbot --nginx --redirect --no-eff-email --email "${ADMIN_EMAIL}" -d "${PANEL_FQDN}" --non-interactive >> "$LOG_FILE" 2>&1; then
-      success "SSL Certificate configured."
-    else
-      warn "Certbot SSL request failed. Falling back to HTTP."
-    fi
+    certbot --nginx --redirect --no-eff-email --email "${ADMIN_EMAIL}" -d "${PANEL_FQDN}" --non-interactive >> "$LOG_FILE" 2>&1 || true
   fi
 }
 
@@ -430,24 +368,21 @@ main() {
   detect_arch
 
   collect_panel_inputs
-  if [[ "$ENABLE_FW" == true ]]; then
-    configure_firewall_ports 80 443 22
-  fi
+  [[ "$ENABLE_FW" == true ]] && configure_firewall_ports 80 443 22
 
-  setup_php_repositories
-  install_panel_dependencies
-  install_composer
-  setup_database
-  download_panel
-  configure_panel_app
-  setup_services_and_cron
-  configure_nginx
-  setup_ssl
+  # Tasks run with live spinner and elapsed timer
+  run_task "Configuring package repositories" do_setup_php_repositories
+  run_task "Installing system & runtime dependencies" do_install_dependencies
+  run_task "Installing Composer package manager" do_install_composer
+  run_task "Setting up MariaDB database and user" do_setup_database
+  run_task "Downloading Pterodactyl Panel source" do_download_panel
+  run_task "Configuring environment & compiling assets" do_configure_panel_app
+  run_task "Registering systemd queue workers & cron" do_setup_services
+  run_task "Configuring Nginx web server" do_configure_nginx
+  run_task "Configuring SSL certificate" do_setup_ssl
 
   local scheme="http"
-  if [[ "$PANEL_SSL" != "none" ]]; then
-    scheme="https"
-  fi
+  [[ "$PANEL_SSL" != "none" ]] && scheme="https"
 
   echo -e "\n  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "  ${GREEN}${BOLD}[SUCCESS] Pterodactyl Panel (${PANEL_VERSION}) Installed!${NC}"

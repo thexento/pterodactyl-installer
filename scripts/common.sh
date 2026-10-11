@@ -8,9 +8,6 @@
 
 set -Eeuo pipefail
 
-# --- Error Reporting Trap ---
-trap 'echo -e "\n\033[0;31m[FATAL ERROR]\033[0m Command failed at line $LINENO: \"$BASH_COMMAND\" (exit code: $?)" >&2' ERR
-
 # --- Constants ---
 export LOG_FILE="/var/log/pterodactyl-xento.log"
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -33,7 +30,7 @@ check_root() {
   fi
 }
 
-# --- Logging & UI Functions ---
+# --- Logging Functions ---
 init_log() {
   mkdir -p "$(dirname "$LOG_FILE")"
   touch "$LOG_FILE"
@@ -51,35 +48,68 @@ log_write() {
   echo "[$(date +'%Y-%m-%d %H:%M:%S')] [${level}] ${msg}" | sanitize_log >> "$LOG_FILE"
 }
 
-info() {
-  echo -e "${CYAN}[INFO]${NC}  $*"
-  log_write "INFO" "$*"
-}
+info()    { echo -e "${CYAN}[INFO]${NC}  $*"; log_write "INFO" "$*"; }
+step()    { echo -e "${WHITE}${BOLD}[STEP]${NC}  $*"; log_write "STEP" "$*"; }
+success() { echo -e "${GREEN}[OK]${NC}    $*"; log_write "SUCCESS" "$*"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; log_write "WARN" "$*"; }
+error()   { echo -e "${RED}[ERR]${NC}   $*" >&2; log_write "ERROR" "$*"; }
+fatal()   { echo -e "${RED}${BOLD}[FATAL]${NC} $*" >&2; log_write "FATAL" "$*"; exit 1; }
 
-step() {
-  echo -e "${WHITE}${BOLD}[STEP]${NC}  $*"
-  log_write "STEP" "$*"
-}
+# --- Animated Spinner Runner with Live Elapsed Timer ---
+run_task() {
+  local msg="$1"
+  shift
 
-success() {
-  echo -e "${GREEN}[OK]${NC}    $*"
-  log_write "SUCCESS" "$*"
-}
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local spin_pid=""
+  local start_time
+  start_time=$(date +%s)
 
-warn() {
-  echo -e "${YELLOW}[WARN]${NC}  $*"
-  log_write "WARN" "$*"
-}
+  log_write "TASK_START" "$msg"
 
-error() {
-  echo -e "${RED}[ERR]${NC}   $*" >&2
-  log_write "ERROR" "$*"
-}
+  # Start spinner background subshell
+  (
+    local i=0
+    while true; do
+      local frame="${frames[$((i % 10))]}"
+      local now
+      now=$(date +%s)
+      local elapsed=$(( now - start_time ))
+      local mins=$(( elapsed / 60 ))
+      local secs=$(( elapsed % 60 ))
+      printf "\r\033[0;36m[WAIT]\033[0m %s... \033[0;36m%s\033[0m \033[2m[%02d:%02d]\033[0m   " \
+        "$msg" "$frame" "$mins" "$secs"
+      sleep 0.1
+      ((i++)) || true
+    done
+  ) &
+  spin_pid=$!
 
-fatal() {
-  echo -e "${RED}${BOLD}[FATAL]${NC} $*" >&2
-  log_write "FATAL" "$*"
-  exit 1
+  # Run the target command, sending outputs to log
+  local exit_code=0
+  "$@" >> "$LOG_FILE" 2>&1 || exit_code=$?
+
+  # Cleanly stop spinner
+  kill "$spin_pid" 2>/dev/null || true
+  wait "$spin_pid" 2>/dev/null || true
+  printf "\r\033[K"
+
+  local end_time
+  end_time=$(date +%s)
+  local total=$(( end_time - start_time ))
+  local mins=$(( total / 60 ))
+  local secs=$(( total % 60 ))
+
+  if [[ $exit_code -eq 0 ]]; then
+    printf "\033[0;32m[OK]\033[0m   %s \033[2m(%02dm %02ds)\033[0m\n" "$msg" "$mins" "$secs"
+    log_write "TASK_DONE" "$msg (elapsed: ${total}s)"
+  else
+    printf "\033[0;31m[FAIL]\033[0m %s \033[2m(%02dm %02ds)\033[0m\n" "$msg" "$mins" "$secs"
+    log_write "TASK_FAILED" "$msg (code: $exit_code)"
+    echo -e "${RED}[ERR]${NC}  Recent log output:" >&2
+    tail -n 25 "$LOG_FILE" >&2
+    return $exit_code
+  fi
 }
 
 detect_os() {
@@ -98,26 +128,26 @@ detect_os() {
     ubuntu)
       case "$OS_VERSION_ID" in
         20.04|22.04|24.04|26.04) ;;
-        *) fatal "Unsupported Ubuntu version: ${OS_VERSION_ID}. Supported: 22.04, 24.04, 26.04." ;;
+        *) fatal "Unsupported Ubuntu version: ${OS_VERSION_ID}." ;;
       esac
       PKG_MANAGER="apt"
       ;;
     debian)
       case "$OS_MAJOR" in
         11|12) ;;
-        *) fatal "Unsupported Debian version: ${OS_VERSION_ID}. Supported: 11, 12." ;;
+        *) fatal "Unsupported Debian version: ${OS_VERSION_ID}." ;;
       esac
       PKG_MANAGER="apt"
       ;;
     rocky|almalinux)
       case "$OS_MAJOR" in
         8|9) ;;
-        *) fatal "Unsupported ${OS_ID} version: ${OS_VERSION_ID}. Supported: 8, 9." ;;
+        *) fatal "Unsupported ${OS_ID} version: ${OS_VERSION_ID}." ;;
       esac
       PKG_MANAGER="dnf"
       ;;
     *)
-      fatal "Unsupported operating system: ${OS_ID}. Supported: Ubuntu, Debian, Rocky Linux, AlmaLinux."
+      fatal "Unsupported operating system: ${OS_ID}."
       ;;
   esac
 
@@ -129,43 +159,20 @@ detect_arch() {
   raw_arch="$(uname -m)"
 
   case "$raw_arch" in
-    x86_64|amd64)
-      ARCH="amd64"
-      ;;
-    aarch64|arm64|armv8*)
-      ARCH="arm64"
-      ;;
-    *)
-      fatal "Unsupported architecture: ${raw_arch}. Supported: x86_64, aarch64."
-      ;;
+    x86_64|amd64) ARCH="amd64" ;;
+    aarch64|arm64|armv8*) ARCH="arm64" ;;
+    *) fatal "Unsupported architecture: ${raw_arch}." ;;
   esac
 
   info "Detected Architecture: ${raw_arch} (${ARCH})"
 }
 
-# --- Validation Helpers ---
-validate_email() {
-  [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]
-}
+validate_email()     { [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; }
+validate_domain_ip() { [[ "$1" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]] || [[ "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; }
+validate_url()       { [[ "$1" =~ ^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$ ]]; }
+validate_token()     { [[ "$1" =~ ^ptla_[a-zA-Z0-9]{32,}$ ]]; }
+validate_node_id()   { [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]; }
 
-validate_domain_ip() {
-  [[ "$1" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]] || \
-  [[ "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
-}
-
-validate_url() {
-  [[ "$1" =~ ^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$ ]]
-}
-
-validate_token() {
-  [[ "$1" =~ ^ptla_[a-zA-Z0-9]{32,}$ ]]
-}
-
-validate_node_id() {
-  [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]
-}
-
-# --- 100% Pipe-free Safe Password Generator ---
 generate_password() {
   local length="${1:-24}"
   local p=""
@@ -178,9 +185,7 @@ generate_password() {
   echo "${p:0:$length}"
 }
 
-# --- Package Management Wrappers ---
 pkg_update() {
-  log_write "EXEC" "Updating package databases"
   if [[ "$PKG_MANAGER" == "apt" ]]; then
     DEBIAN_FRONTEND=noninteractive apt-get update -y >> "$LOG_FILE" 2>&1
   else
@@ -189,28 +194,15 @@ pkg_update() {
 }
 
 pkg_install() {
-  log_write "EXEC" "Installing packages: $*"
   if [[ "$PKG_MANAGER" == "apt" ]]; then
-    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" >> "$LOG_FILE" 2>&1; then
-      error "Package installation failed for: $*"
-      echo -e "${RED}[ERR]${NC} APT output log:" >&2
-      tail -n 25 "$LOG_FILE" >&2
-      return 1
-    fi
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" >> "$LOG_FILE" 2>&1
   else
-    if ! dnf install -y "$@" >> "$LOG_FILE" 2>&1; then
-      error "Package installation failed for: $*"
-      echo -e "${RED}[ERR]${NC} DNF output log:" >&2
-      tail -n 25 "$LOG_FILE" >&2
-      return 1
-    fi
+    dnf install -y "$@" >> "$LOG_FILE" 2>&1
   fi
 }
 
-# --- Service Wrappers ---
 service_enable_start() {
   local service_name="$1"
-  log_write "EXEC" "Enabling and starting service: ${service_name}"
   systemctl daemon-reload >> "$LOG_FILE" 2>&1 || true
   systemctl enable "$service_name" >> "$LOG_FILE" 2>&1
   systemctl restart "$service_name" >> "$LOG_FILE" 2>&1
@@ -220,7 +212,6 @@ service_is_active() {
   systemctl is-active --quiet "$1"
 }
 
-# --- Backup Helper ---
 create_backup() {
   local target_path="$1"
   local label="$2"
@@ -230,32 +221,25 @@ create_backup() {
     ts="$(date +'%Y%m%d_%H%M%S')"
     local backup_dir="/var/backups/pterodactyl-xento/${ts}"
     mkdir -p "$backup_dir"
-
-    info "Creating backup of ${label} at ${backup_dir}..."
     cp -rf "$target_path" "${backup_dir}/" >> "$LOG_FILE" 2>&1
     success "Backup created for ${label}."
   fi
 }
 
-# --- Firewall Helper ---
 configure_firewall_ports() {
   local ports=("$@")
 
   if command -v ufw >/dev/null 2>&1; then
-    info "Configuring UFW rules..."
     for port in "${ports[@]}"; do
       ufw allow "$port" >> "$LOG_FILE" 2>&1 || true
     done
     ufw --force enable >> "$LOG_FILE" 2>&1 || true
     success "UFW firewall updated."
   elif command -v firewall-cmd >/dev/null 2>&1; then
-    info "Configuring firewalld rules..."
     for port in "${ports[@]}"; do
       firewall-cmd --permanent --add-port="$port" >> "$LOG_FILE" 2>&1 || true
     done
     firewall-cmd --reload >> "$LOG_FILE" 2>&1 || true
     success "firewalld updated."
-  else
-    warn "No supported firewall manager found active. Skipping firewall setup."
   fi
 }
