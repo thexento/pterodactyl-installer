@@ -175,7 +175,10 @@ validate_node_id() {
 
 generate_password() {
   local length="${1:-24}"
-  tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$length"
+  local pass
+  # Read a fixed 512-byte sample so tr reaches EOF without triggering SIGPIPE (exit code 141) under pipefail
+  pass="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' || true)"
+  echo "${pass:0:$length}"
 }
 
 # --- Package Management Wrappers ---

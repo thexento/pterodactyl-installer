@@ -84,9 +84,13 @@ collect_panel_inputs() {
     esac
   done
 
-  echo -n -e "  ${WHITE}Configure firewall rules? [y/N]:${NC} "
+ echo -n -e "  Configure firewall rules? [y/N]: "
   read -r FW_RESP
-  [[ "$FW_RESP" =~ ^[Yy]$ ]] && ENABLE_FW=true || ENABLE_FW=false
+  if [[ "$FW_RESP" =~ ^[Yy]$ ]]; then
+    ENABLE_FW=true
+  else
+    ENABLE_FW=false
+  fi
 
   MYSQL_DB="panel"
   MYSQL_USER="pterodactyl"
