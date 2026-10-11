@@ -191,9 +191,19 @@ pkg_update() {
 pkg_install() {
   log_write "EXEC" "Installing packages: $*"
   if [[ "$PKG_MANAGER" == "apt" ]]; then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" >> "$LOG_FILE" 2>&1
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" >> "$LOG_FILE" 2>&1; then
+      error "Package installation failed for: $*"
+      echo -e "${RED}[ERR]${NC} APT output log:" >&2
+      tail -n 25 "$LOG_FILE" >&2
+      return 1
+    fi
   else
-    dnf install -y "$@" >> "$LOG_FILE" 2>&1
+    if ! dnf install -y "$@" >> "$LOG_FILE" 2>&1; then
+      error "Package installation failed for: $*"
+      echo -e "${RED}[ERR]${NC} DNF output log:" >&2
+      tail -n 25 "$LOG_FILE" >&2
+      return 1
+    fi
   fi
 }
 

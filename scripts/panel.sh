@@ -148,13 +148,14 @@ install_panel_dependencies() {
   step "Installing core dependencies (PHP 8.3, MariaDB, Redis, Nginx)..."
   case "$PKG_MANAGER" in
     apt)
+      # Note: tokenizer is already built into php8.3-common on Debian/Ubuntu
       pkg_install php8.3 php8.3-cli php8.3-common php8.3-gd php8.3-mysql php8.3-mbstring \
-                  php8.3-bcmath php8.3-xml php8.3-fpm php8.3-curl php8.3-zip php8.3-tokenizer \
-                  php8.3-intl mariadb-server mariadb-client nginx redis-server curl tar unzip git cron
+                  php8.3-bcmath php8.3-xml php8.3-fpm php8.3-curl php8.3-zip \
+                  php8.3-intl mariadb-server nginx redis-server curl tar unzip git cron
       ;;
     dnf)
       pkg_install php php-cli php-common php-gd php-mysqlnd php-mbstring php-bcmath \
-                  php-xml php-fpm php-curl php-zip php-tokenizer php-intl \
+                  php-xml php-fpm php-curl php-zip php-intl \
                   mariadb mariadb-server nginx redis curl tar unzip git cronie
       ;;
   esac
