@@ -37,8 +37,8 @@ else
   SCRIPTS_DIR="/tmp/pterodactyl-installer/scripts"
 fi
 
-# Download helper modules if executing remotely
-if [[ ! -d "$SCRIPTS_DIR" || ! -f "${SCRIPTS_DIR}/common.sh" ]]; then
+# Download fresh helper modules when executing remotely
+if [[ "$SCRIPTS_DIR" == "/tmp/pterodactyl-installer/scripts" || ! -f "${SCRIPTS_DIR}/common.sh" ]]; then
   mkdir -p "$SCRIPTS_DIR"
   BASE_RAW_URL="https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/scripts"
   curl -fsSL "${BASE_RAW_URL}/common.sh" -o "${SCRIPTS_DIR}/common.sh"
