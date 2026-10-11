@@ -22,7 +22,6 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
-# --- Root Check Helper ---
 check_root() {
   if [[ $EUID -ne 0 ]]; then
     echo -e "${RED}[FATAL]${NC} Root privileges required. Please execute with sudo." >&2
@@ -30,7 +29,6 @@ check_root() {
   fi
 }
 
-# --- Logging Functions ---
 init_log() {
   mkdir -p "$(dirname "$LOG_FILE")"
   touch "$LOG_FILE"
@@ -55,43 +53,54 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; log_write "WARN" "$*"; }
 error()   { echo -e "${RED}[ERR]${NC}   $*" >&2; log_write "ERROR" "$*"; }
 fatal()   { echo -e "${RED}${BOLD}[FATAL]${NC} $*" >&2; log_write "FATAL" "$*"; exit 1; }
 
-# --- Animated Spinner Runner with Live Elapsed Timer ---
+# --- Live Progress Runner (Auto-Advancing & Non-Blocking) ---
 run_task() {
-  local msg="$1"
+  local desc="$1"
   shift
 
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-  local spin_pid=""
   local start_time
   start_time=$(date +%s)
 
-  log_write "TASK_START" "$msg"
+  log_write "TASK_START" "$desc"
 
-  # Start spinner background subshell
-  (
-    local i=0
-    while true; do
-      local frame="${frames[$((i % 10))]}"
-      local now
-      now=$(date +%s)
-      local elapsed=$(( now - start_time ))
-      local mins=$(( elapsed / 60 ))
-      local secs=$(( elapsed % 60 ))
-      printf "\r\033[0;36m[WAIT]\033[0m %s... \033[0;36m%s\033[0m \033[2m[%02d:%02d]\033[0m   " \
-        "$msg" "$frame" "$mins" "$secs"
-      sleep 0.1
-      ((i++)) || true
-    done
-  ) &
-  spin_pid=$!
+  # Run task in background with stdin disconnected
+  "$@" < /dev/null >> "$LOG_FILE" 2>&1 &
+  local task_pid=$!
 
-  # Run the target command, sending outputs to log
+  # Foreground loop polls the task PID — terminates immediately when done
+  local i=0
+  while kill -0 "$task_pid" 2>/dev/null; do
+    local frame="${frames[$((i % 10))]}"
+    local now
+    now=$(date +%s)
+    local elapsed=$(( now - start_time ))
+    local mins=$(( elapsed / 60 ))
+    local secs=$(( elapsed % 60 ))
+
+    # Extract last active line from log file for live progress info
+    local live_info=""
+    if [[ -f "$LOG_FILE" ]]; then
+      live_info=$(tail -n 10 "$LOG_FILE" 2>/dev/null | grep -v '^\s*$' | tail -n 1 | tr -cd '[:print:]' | cut -c 1-40 || true)
+    fi
+
+    if [[ -n "$live_info" ]]; then
+      printf "\r\033[0;36m[WAIT]\033[0m %s \033[0;36m%s\033[0m \033[2m[%02d:%02d]\033[0m \033[90m| %s\033[0m\033[K" \
+        "$desc" "$frame" "$mins" "$secs" "$live_info"
+    else
+      printf "\r\033[0;36m[WAIT]\033[0m %s \033[0;36m%s\033[0m \033[2m[%02d:%02d]\033[0m\033[K" \
+        "$desc" "$frame" "$mins" "$secs"
+    fi
+
+    sleep 0.2
+    ((i++)) || true
+  done
+
+  # Capture exit code
   local exit_code=0
-  "$@" >> "$LOG_FILE" 2>&1 || exit_code=$?
+  wait "$task_pid" || exit_code=$?
 
-  # Cleanly stop spinner
-  kill "$spin_pid" 2>/dev/null || true
-  wait "$spin_pid" 2>/dev/null || true
+  # Clear line
   printf "\r\033[K"
 
   local end_time
@@ -101,12 +110,12 @@ run_task() {
   local secs=$(( total % 60 ))
 
   if [[ $exit_code -eq 0 ]]; then
-    printf "\033[0;32m[OK]\033[0m   %s \033[2m(%02dm %02ds)\033[0m\n" "$msg" "$mins" "$secs"
-    log_write "TASK_DONE" "$msg (elapsed: ${total}s)"
+    printf "\033[0;32m[OK]\033[0m   %s \033[2m(%02dm %02ds)\033[0m\n" "$desc" "$mins" "$secs"
+    log_write "TASK_OK" "$desc (took ${total}s)"
   else
-    printf "\033[0;31m[FAIL]\033[0m %s \033[2m(%02dm %02ds)\033[0m\n" "$msg" "$mins" "$secs"
-    log_write "TASK_FAILED" "$msg (code: $exit_code)"
-    echo -e "${RED}[ERR]${NC}  Recent log output:" >&2
+    printf "\033[0;31m[FAIL]\033[0m %s \033[2m(%02dm %02ds)\033[0m\n" "$desc" "$mins" "$secs"
+    log_write "TASK_FAIL" "$desc (code $exit_code)"
+    echo -e "${RED}[ERR]${NC}  Recent output from $LOG_FILE:" >&2
     tail -n 25 "$LOG_FILE" >&2
     return $exit_code
   fi

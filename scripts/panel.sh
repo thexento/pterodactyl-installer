@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Pterodactyl Installer — Panel Installer Module (with Live Tasks)
+# Pterodactyl Installer — Panel Installer Module
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -159,12 +159,12 @@ do_install_dependencies() {
                   mariadb mariadb-server nginx redis curl tar unzip git cronie
       ;;
   esac
+}
 
-  if [[ "$PANEL_VERSION" == "v2" ]]; then
-    if ! command -v node >/dev/null 2>&1; then
-      curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >> "$LOG_FILE" 2>&1 || true
-      pkg_install nodejs
-    fi
+do_install_nodejs() {
+  if ! command -v node >/dev/null 2>&1; then
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >> "$LOG_FILE" 2>&1 || true
+    pkg_install nodejs
   fi
 }
 
@@ -209,19 +209,27 @@ do_download_panel() {
   cp .env.example .env
 }
 
-do_configure_panel_app() {
+do_composer_vendor() {
+  cd /var/www/pterodactyl
+  COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=php+ >> "$LOG_FILE" 2>&1
+}
+
+do_npm_packages() {
+  cd /var/www/pterodactyl
+  npm ci >> "$LOG_FILE" 2>&1 || npm install >> "$LOG_FILE" 2>&1
+}
+
+do_build_v2_assets() {
+  cd /var/www/pterodactyl
+  npm run build >> "$LOG_FILE" 2>&1 || npm run build:production >> "$LOG_FILE" 2>&1 || true
+}
+
+do_laravel_config() {
   cd /var/www/pterodactyl
 
   local scheme="http"
   [[ "$PANEL_SSL" != "none" ]] && scheme="https"
   local app_url="${scheme}://${PANEL_FQDN}"
-
-  COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=php+ >> "$LOG_FILE" 2>&1
-
-  if [[ "$PANEL_VERSION" == "v2" && ! -d "public/build" ]]; then
-    npm ci >> "$LOG_FILE" 2>&1 || npm install >> "$LOG_FILE" 2>&1
-    npm run build >> "$LOG_FILE" 2>&1 || npm run build:production >> "$LOG_FILE" 2>&1 || true
-  fi
 
   php artisan key:generate --force >> "$LOG_FILE" 2>&1
 
@@ -245,9 +253,15 @@ do_configure_panel_app() {
     --username="${MYSQL_USER}" \
     --password="${MYSQL_PASS}" \
     --no-interaction >> "$LOG_FILE" 2>&1
+}
 
+do_database_migrations() {
+  cd /var/www/pterodactyl
   php artisan migrate --seed --force >> "$LOG_FILE" 2>&1
+}
 
+do_create_admin_user() {
+  cd /var/www/pterodactyl
   php artisan p:user:make \
     --email="${ADMIN_EMAIL}" \
     --username="${ADMIN_USER}" \
@@ -370,13 +384,23 @@ main() {
   collect_panel_inputs
   [[ "$ENABLE_FW" == true ]] && configure_firewall_ports 80 443 22
 
-  # Tasks run with live spinner and elapsed timer
+  # Live auto-advancing tasks with real-time log activity
   run_task "Configuring package repositories" do_setup_php_repositories
-  run_task "Installing system & runtime dependencies" do_install_dependencies
-  run_task "Installing Composer package manager" do_install_composer
-  run_task "Setting up MariaDB database and user" do_setup_database
-  run_task "Downloading Pterodactyl Panel source" do_download_panel
-  run_task "Configuring environment & compiling assets" do_configure_panel_app
+  run_task "Installing system dependencies" do_install_dependencies
+  if [[ "$PANEL_VERSION" == "v2" ]]; then
+    run_task "Installing Node.js 22 runtime" do_install_nodejs
+  fi
+  run_task "Installing Composer v2" do_install_composer
+  run_task "Configuring MariaDB database & user" do_setup_database
+  run_task "Downloading Pterodactyl Panel ($PANEL_VERSION)" do_download_panel
+  run_task "Installing Composer PHP packages" do_composer_vendor
+  if [[ "$PANEL_VERSION" == "v2" ]]; then
+    run_task "Downloading npm build packages" do_npm_packages
+    run_task "Compiling v2 frontend assets (Vite)" do_build_v2_assets
+  fi
+  run_task "Configuring Laravel environment (.env)" do_laravel_config
+  run_task "Running database migrations & seeds" do_database_migrations
+  run_task "Creating administrator account" do_create_admin_user
   run_task "Registering systemd queue workers & cron" do_setup_services
   run_task "Configuring Nginx web server" do_configure_nginx
   run_task "Configuring SSL certificate" do_setup_ssl
