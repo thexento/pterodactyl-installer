@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Pterodactyl Installer — Panel Installer Module
+# Pterodactyl Installer — Panel Installer Module (Adaptive PHP)
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -123,8 +123,9 @@ setup_php_repositories() {
   step "Configuring PHP repositories..."
   case "$OS_ID" in
     ubuntu)
-      if ! apt-cache show php8.3 >/dev/null 2>&1; then
-        pkg_install software-properties-common ca-certificates lsb-release apt-transport-https gnupg
+      pkg_install software-properties-common ca-certificates lsb-release apt-transport-https gnupg
+      add-apt-repository -y universe >> "$LOG_FILE" 2>&1 || true
+      if ! apt-cache show php8.3-fpm >/dev/null 2>&1 && ! apt-cache show php-fpm >/dev/null 2>&1; then
         add-apt-repository -y ppa:ondrej/php >> "$LOG_FILE" 2>&1 || true
       fi
       ;;
@@ -145,13 +146,21 @@ setup_php_repositories() {
 }
 
 install_panel_dependencies() {
-  step "Installing core dependencies (PHP 8.3, MariaDB, Redis, Nginx)..."
+  step "Installing core dependencies (PHP, MariaDB, Redis, Nginx)..."
   case "$PKG_MANAGER" in
     apt)
-      # Note: tokenizer is already built into php8.3-common on Debian/Ubuntu
-      pkg_install php8.3 php8.3-cli php8.3-common php8.3-gd php8.3-mysql php8.3-mbstring \
-                  php8.3-bcmath php8.3-xml php8.3-fpm php8.3-curl php8.3-zip \
-                  php8.3-intl mariadb-server nginx redis-server curl tar unzip git cron
+      # Check if versioned php8.3 packages exist in APT cache, otherwise use distro php packages
+      local php_pkgs=()
+      if apt-cache show php8.3-fpm >/dev/null 2>&1; then
+        php_pkgs=(php8.3 php8.3-cli php8.3-common php8.3-gd php8.3-mysql php8.3-mbstring \
+                  php8.3-bcmath php8.3-xml php8.3-fpm php8.3-curl php8.3-zip php8.3-intl)
+      else
+        info "Installing native distribution PHP packages..."
+        php_pkgs=(php php-cli php-common php-gd php-mysql php-mbstring \
+                  php-bcmath php-xml php-fpm php-curl php-zip php-intl)
+      fi
+
+      pkg_install "${php_pkgs[@]}" mariadb-server nginx redis-server curl tar unzip git cron
       ;;
     dnf)
       pkg_install php php-cli php-common php-gd php-mysqlnd php-mbstring php-bcmath \
@@ -162,7 +171,7 @@ install_panel_dependencies() {
 
   if [[ "$PANEL_VERSION" == "v2" ]]; then
     if ! command -v node >/dev/null 2>&1; then
-      step "Installing Node.js 22 for v2 frontend build..."
+      step "Installing Node.js for v2 frontend build..."
       curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >> "$LOG_FILE" 2>&1 || true
       pkg_install nodejs
     fi
@@ -318,10 +327,20 @@ SERVICE
 
 configure_nginx() {
   step "Configuring Nginx Web Server..."
-  local php_sock="/run/php/php8.3-fpm.sock"
-  if [[ "$PKG_MANAGER" == "dnf" ]]; then
-    php_sock="/run/php-fpm/www.sock"
+
+  # Dynamically find PHP-FPM socket
+  systemctl restart php*-fpm >> "$LOG_FILE" 2>&1 || true
+  sleep 1
+
+  local php_sock
+  php_sock="$(find /run/php -maxdepth 1 -name "*fpm.sock" 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$php_sock" ]]; then
+    php_sock="/run/php/php8.3-fpm.sock"
+    if [[ "$PKG_MANAGER" == "dnf" ]]; then
+      php_sock="/run/php-fpm/www.sock"
+    fi
   fi
+  info "Using PHP-FPM socket: ${php_sock}"
 
   local conf_path="/etc/nginx/sites-available/pterodactyl.conf"
   if [[ "$PKG_MANAGER" == "dnf" ]]; then
@@ -376,7 +395,6 @@ NGINX
     fatal "Nginx configuration test failed. Check log file."
   fi
 
-  service_enable_start php8.3-fpm || service_enable_start php-fpm
   service_enable_start nginx
   success "Nginx configured."
 }
