@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Pterodactyl Installer — Panel Installer Module (v1 & v2 Support)
+# Pterodactyl Installer — Panel Installer Module
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -43,26 +43,26 @@ collect_panel_inputs() {
   while true; do
     echo -n -e "  ${WHITE}Admin Username (min 3 chars):${NC} "
     read -r ADMIN_USER
-    [[ ${#ADMIN_USER} -ge 3 ]] && break || error "Username must be at least 3 characters."
+    if [[ ${#ADMIN_USER} -ge 3 ]]; then break; else error "Username must be at least 3 characters."; fi
   done
 
   while true; do
     echo -n -e "  ${WHITE}Admin First Name:${NC} "
     read -r ADMIN_FIRST
-    [[ -n "$ADMIN_FIRST" ]] && break || error "First name cannot be empty."
+    if [[ -n "$ADMIN_FIRST" ]]; then break; else error "First name cannot be empty."; fi
   done
 
   while true; do
     echo -n -e "  ${WHITE}Admin Last Name:${NC} "
     read -r ADMIN_LAST
-    [[ -n "$ADMIN_LAST" ]] && break || error "Last name cannot be empty."
+    if [[ -n "$ADMIN_LAST" ]]; then break; else error "Last name cannot be empty."; fi
   done
 
   while true; do
     echo -n -e "  ${WHITE}Admin Password (min 8 chars):${NC} "
     read -rs ADMIN_PASS
     echo ""
-    [[ ${#ADMIN_PASS} -ge 8 ]] && break || error "Password must be at least 8 characters."
+    if [[ ${#ADMIN_PASS} -ge 8 ]]; then break; else error "Password must be at least 8 characters."; fi
   done
 
   echo -n -e "  ${WHITE}Timezone [UTC]:${NC} "
@@ -84,7 +84,7 @@ collect_panel_inputs() {
     esac
   done
 
- echo -n -e "  Configure firewall rules? [y/N]: "
+  echo -n -e "  ${WHITE}Configure firewall rules? [y/N]:${NC} "
   read -r FW_RESP
   if [[ "$FW_RESP" =~ ^[Yy]$ ]]; then
     ENABLE_FW=true
@@ -96,10 +96,15 @@ collect_panel_inputs() {
   MYSQL_USER="pterodactyl"
   MYSQL_PASS="$(generate_password 24)"
 
+  local ver_label="(Stable)"
+  if [[ "$PANEL_VERSION" == "v2" ]]; then
+    ver_label="(Alpha/Pre-Release)"
+  fi
+
   echo -e "\n  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "  ${WHITE}${BOLD}Summary - Panel Setup${NC}"
   echo -e "  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "  Version    : ${WHITE}${PANEL_VERSION} $([[ "$PANEL_VERSION" == "v2" ]] && echo "(Alpha/Pre-Release)" || echo "(Stable)")${NC}"
+  echo -e "  Version    : ${WHITE}${PANEL_VERSION} ${ver_label}${NC}"
   echo -e "  Domain/IP  : ${WHITE}${PANEL_FQDN}${NC}"
   echo -e "  Admin User : ${WHITE}${ADMIN_USER} (${ADMIN_EMAIL})${NC}"
   echo -e "  Timezone   : ${WHITE}${TIMEZONE}${NC}"
@@ -154,7 +159,6 @@ install_panel_dependencies() {
       ;;
   esac
 
-  # v2 requires Node.js 22 to build frontend if needed
   if [[ "$PANEL_VERSION" == "v2" ]]; then
     if ! command -v node >/dev/null 2>&1; then
       step "Installing Node.js 22 for v2 frontend build..."
@@ -163,7 +167,7 @@ install_panel_dependencies() {
     fi
   fi
 
-  success "Core dependencies  installed."
+  success "Core dependencies installed."
 }
 
 install_composer() {
@@ -221,12 +225,13 @@ configure_panel_app() {
   cd /var/www/pterodactyl
 
   local scheme="http"
-  [[ "$PANEL_SSL" != "none" ]] && scheme="https"
+  if [[ "$PANEL_SSL" != "none" ]]; then
+    scheme="https"
+  fi
   local app_url="${scheme}://${PANEL_FQDN}"
 
   COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction >> "$LOG_FILE" 2>&1
 
-  # For v2, build the frontend if public build assets are not present
   if [[ "$PANEL_VERSION" == "v2" && ! -d "public/build" ]]; then
     step "Building v2 Frontend Assets (npm run build)..."
     npm ci >> "$LOG_FILE" 2>&1
@@ -268,7 +273,9 @@ configure_panel_app() {
     --no-interaction >> "$LOG_FILE" 2>&1
 
   local web_user="www-data"
-  [[ "$PKG_MANAGER" == "dnf" ]] && web_user="nginx"
+  if [[ "$PKG_MANAGER" == "dnf" ]]; then
+    web_user="nginx"
+  fi
   chown -R "${web_user}:${web_user}" /var/www/pterodactyl
 
   success "Panel application configured."
@@ -280,7 +287,9 @@ setup_services_and_cron() {
   (crontab -l 2>/dev/null | grep -v "pterodactyl/artisan schedule:run" || true; echo "* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 2>&1") | crontab -
 
   local web_user="www-data"
-  [[ "$PKG_MANAGER" == "dnf" ]] && web_user="nginx"
+  if [[ "$PKG_MANAGER" == "dnf" ]]; then
+    web_user="nginx"
+  fi
 
   cat > /etc/systemd/system/pteroq.service <<SERVICE
 [Unit]
@@ -309,10 +318,14 @@ SERVICE
 configure_nginx() {
   step "Configuring Nginx Web Server..."
   local php_sock="/run/php/php8.3-fpm.sock"
-  [[ "$PKG_MANAGER" == "dnf" ]] && php_sock="/run/php-fpm/www.sock"
+  if [[ "$PKG_MANAGER" == "dnf" ]]; then
+    php_sock="/run/php-fpm/www.sock"
+  fi
 
   local conf_path="/etc/nginx/sites-available/pterodactyl.conf"
-  [[ "$PKG_MANAGER" == "dnf" ]] && conf_path="/etc/nginx/conf.d/pterodactyl.conf"
+  if [[ "$PKG_MANAGER" == "dnf" ]]; then
+    conf_path="/etc/nginx/conf.d/pterodactyl.conf"
+  fi
 
   cat > "$conf_path" <<NGINX
 server {
@@ -385,7 +398,9 @@ main() {
   detect_arch
 
   collect_panel_inputs
-  [[ "$ENABLE_FW" == true ]] && configure_firewall_ports 80 443 22
+  if [[ "$ENABLE_FW" == true ]]; then
+    configure_firewall_ports 80 443 22
+  fi
 
   setup_php_repositories
   install_panel_dependencies
@@ -398,7 +413,9 @@ main() {
   setup_ssl
 
   local scheme="http"
-  [[ "$PANEL_SSL" != "none" ]] && scheme="https"
+  if [[ "$PANEL_SSL" != "none" ]]; then
+    scheme="https"
+  fi
 
   echo -e "\n  ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "  ${GREEN}${BOLD}[SUCCESS] Pterodactyl Panel (${PANEL_VERSION}) Installed!${NC}"

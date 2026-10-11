@@ -21,7 +21,7 @@ if [[ $EUID -ne 0 ]]; then
     exec sudo bash "$SELF" "$@"
   else
     mkdir -p /tmp/pterodactyl-installer
-    curl -fsSL "https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/install.sh" -o /tmp/pterodactyl-installer/install.sh
+    curl -fsSL "https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/install.sh?t=$(date +%s)" -o /tmp/pterodactyl-installer/install.sh
     chmod +x /tmp/pterodactyl-installer/install.sh
     exec sudo bash /tmp/pterodactyl-installer/install.sh "$@"
   fi
@@ -37,15 +37,16 @@ else
   SCRIPTS_DIR="/tmp/pterodactyl-installer/scripts"
 fi
 
-# Download fresh helper modules when executing remotely
+# Always download fresh helper modules with cache-busting when executing remotely
 if [[ "$SCRIPTS_DIR" == "/tmp/pterodactyl-installer/scripts" || ! -f "${SCRIPTS_DIR}/common.sh" ]]; then
   mkdir -p "$SCRIPTS_DIR"
   BASE_RAW_URL="https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/scripts"
-  curl -fsSL "${BASE_RAW_URL}/common.sh" -o "${SCRIPTS_DIR}/common.sh"
-  curl -fsSL "${BASE_RAW_URL}/panel.sh" -o "${SCRIPTS_DIR}/panel.sh"
-  curl -fsSL "${BASE_RAW_URL}/wings.sh" -o "${SCRIPTS_DIR}/wings.sh"
-  curl -fsSL "${BASE_RAW_URL}/phpmyadmin.sh" -o "${SCRIPTS_DIR}/phpmyadmin.sh"
-  curl -fsSL "${BASE_RAW_URL}/uninstall.sh" -o "${SCRIPTS_DIR}/uninstall.sh"
+  CACHE_BUST="$(date +%s)"
+  curl -fsSL "${BASE_RAW_URL}/common.sh?t=${CACHE_BUST}" -o "${SCRIPTS_DIR}/common.sh"
+  curl -fsSL "${BASE_RAW_URL}/panel.sh?t=${CACHE_BUST}" -o "${SCRIPTS_DIR}/panel.sh"
+  curl -fsSL "${BASE_RAW_URL}/wings.sh?t=${CACHE_BUST}" -o "${SCRIPTS_DIR}/wings.sh"
+  curl -fsSL "${BASE_RAW_URL}/phpmyadmin.sh?t=${CACHE_BUST}" -o "${SCRIPTS_DIR}/phpmyadmin.sh"
+  curl -fsSL "${BASE_RAW_URL}/uninstall.sh?t=${CACHE_BUST}" -o "${SCRIPTS_DIR}/uninstall.sh"
   chmod +x "${SCRIPTS_DIR}"/*.sh
 fi
 

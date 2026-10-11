@@ -3,11 +3,13 @@
 # ==============================================================================
 # Pterodactyl Installer by XENTO — Shared Common Library
 # Repository: https://github.com/thexento/Pterodactyl-Installer
-# Website:    https://pterodactyl-installer.xento.us.kg
 # License:    GNU General Public License v3.0
 # ==============================================================================
 
 set -Eeuo pipefail
+
+# --- Error Reporting Trap ---
+trap 'echo -e "\n\033[0;31m[FATAL ERROR]\033[0m Command failed at line $LINENO: \"$BASH_COMMAND\" (exit code: $?)" >&2' ERR
 
 # --- Constants ---
 export LOG_FILE="/var/log/pterodactyl-xento.log"
@@ -23,21 +25,11 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
-# --- Auto-Elevation Helper (MUST RUN BEFORE LOGGING) ---
-elevate_root() {
+# --- Root Check Helper ---
+check_root() {
   if [[ $EUID -ne 0 ]]; then
-    echo -e "${CYAN}[INFO]${NC}  Root privileges required. Elevating via sudo..."
-    if command -v sudo >/dev/null 2>&1; then
-      # Handle execution via pipe / curl process-substitution
-      if [[ ! -f "$0" ]] || [[ "$0" =~ ^/dev/fd/ ]]; then
-        exec sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/thexento/Pterodactyl-Installer/main/install.sh)" -- "$@"
-      else
-        exec sudo bash "$0" "$@"
-      fi
-    else
-      echo -e "${RED}[FATAL]${NC} Root privileges are required and 'sudo' was not found. Please run as root." >&2
-      exit 1
-    fi
+    echo -e "${RED}[FATAL]${NC} Root privileges required. Please execute with sudo." >&2
+    exit 1
   fi
 }
 
@@ -104,12 +96,12 @@ detect_os() {
 
   case "$OS_ID" in
     ubuntu)
-        case "$OS_VERSION_ID" in
-          22.04|24.04|26.04) ;;
-          *) fatal "Unsupported Ubuntu version: ${OS_VERSION_ID}. Supported: 22.04, 24.04, 26.04." ;;
-        esac
-        PKG_MANAGER="apt"
-        ;;
+      case "$OS_VERSION_ID" in
+        20.04|22.04|24.04|26.04) ;;
+        *) fatal "Unsupported Ubuntu version: ${OS_VERSION_ID}. Supported: 22.04, 24.04, 26.04." ;;
+      esac
+      PKG_MANAGER="apt"
+      ;;
     debian)
       case "$OS_MAJOR" in
         11|12) ;;
@@ -173,12 +165,17 @@ validate_node_id() {
   [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]
 }
 
+# --- 100% Pipe-free Safe Password Generator ---
 generate_password() {
   local length="${1:-24}"
-  local pass
-  # Read a fixed 512-byte sample so tr reaches EOF without triggering SIGPIPE (exit code 141) under pipefail
-  pass="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' || true)"
-  echo "${pass:0:$length}"
+  local p=""
+  if command -v openssl >/dev/null 2>&1; then
+    local num_bytes=$(( (length + 1) / 2 ))
+    p="$(openssl rand -hex "$num_bytes")"
+  else
+    p="$(head -c 128 /dev/urandom 2>/dev/null | LC_ALL=C tr -dc 'A-Za-z0-9' || true)"
+  fi
+  echo "${p:0:$length}"
 }
 
 # --- Package Management Wrappers ---
@@ -249,6 +246,6 @@ configure_firewall_ports() {
     firewall-cmd --reload >> "$LOG_FILE" 2>&1 || true
     success "firewalld updated."
   else
-    warn "No supported firewall manager (ufw/firewalld) found active. Skipping firewall setup."
+    warn "No supported firewall manager found active. Skipping firewall setup."
   fi
 }
